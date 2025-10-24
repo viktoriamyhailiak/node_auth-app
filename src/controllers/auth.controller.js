@@ -145,19 +145,7 @@ export const refresh = async (req, res) => {
 };
 
 export const logout = async (req, res) => {
-  const { refreshToken } = req.cookies;
-
-  if (!refreshToken) {
-    return res.status(401).json({ message: 'No refresh token' });
-  }
-
-  const userData = jwtService.verifyRefresh(refreshToken);
-
-  if (!userData) {
-    return res.status(401).json({ message: 'Invalid refresh token' });
-  }
-
-  await tokenService.remove(userData.id);
+  await tokenService.remove(req.user.id);
   res.clearCookie('refreshToken');
 
   return res.sendStatus(204);
