@@ -77,7 +77,7 @@ async function login(email, password) {
 
   if (user.activationToken) {
     throw ApiError.badRequest(
-      'Користувач не активований. Перевірте пошту для активації акаунту',
+      'User is not activated. Check your mail to activate',
     );
   }
 

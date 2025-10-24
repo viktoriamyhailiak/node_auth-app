@@ -1,8 +1,8 @@
 /* eslint-disable no-console */
 import { userService } from '../services/user.service.js';
 import { jwtService } from '../services/jwt.service.js';
-import { ApiError } from '../exeptions/api.error.js';
 import { tokenService } from '../services/token.service.js';
+import { ApiError } from '../exeptions/api.error.js';
 
 function validateEmail(value) {
   if (!value) {
@@ -46,224 +46,160 @@ const generateTokens = async (user) => {
   return { normalizedUser, accessToken, refreshToken };
 };
 
-export const register = async (req, res, next) => {
-  try {
-    const { name, email, password } = req.body;
-    const errors = {
-      email: validateEmail(email),
-      password: validatePassword(password),
-      name: validateName(name),
-    };
+export const register = async (req, res) => {
+  const { name, email, password } = req.body;
+  const errors = {
+    email: validateEmail(email),
+    password: validatePassword(password),
+    name: validateName(name),
+  };
 
-    if (errors.email || errors.password || errors.name) {
-      throw ApiError.badRequest('Validation failed', errors);
-    }
-
-    const user = await userService.register({ name, email, password });
-
-    const { normalizedUser, accessToken, refreshToken } =
-      await generateTokens(user);
-
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: 'lax',
-      secure: false,
-    });
-
-    return res.json({
-      message: 'Registration successful. Check your email to activate account.',
-      user: normalizedUser,
-      accessToken,
-    });
-  } catch (e) {
-    console.error('updateProfile caught error:', e);
-
-    if (!res.headersSent) {
-      next(e);
-    }
+  if (errors.email || errors.password || errors.name) {
+    throw ApiError.badRequest('Validation failed', errors);
   }
+
+  const user = await userService.register({ name, email, password });
+  const { normalizedUser, accessToken, refreshToken } =
+    await generateTokens(user);
+
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    sameSite: 'lax',
+    secure: false,
+  });
+
+  return res.json({
+    message: 'Registration successful. Check your email to activate account.',
+    user: normalizedUser,
+    accessToken,
+  });
 };
 
-export const activate = async (req, res, next) => {
-  try {
-    const { activationToken } = req.params;
-    const user = await userService.activate(activationToken);
-    const { normalizedUser, accessToken, refreshToken } =
-      await generateTokens(user);
+export const activate = async (req, res) => {
+  const { activationToken } = req.params;
+  const user = await userService.activate(activationToken);
+  const { normalizedUser, accessToken, refreshToken } =
+    await generateTokens(user);
 
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: 'lax',
-      secure: false,
-    });
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    sameSite: 'lax',
+    secure: false,
+  });
 
-    return res.json({
-      message: 'Account successfully activated!',
-      user: normalizedUser,
-      accessToken,
-      refreshToken,
-    });
-  } catch (e) {
-    if (!res.headersSent) {
-      next(e);
-    }
-  }
+  return res.json({
+    message: 'Account successfully activated!',
+    user: normalizedUser,
+    accessToken,
+    refreshToken,
+  });
 };
 
-export const login = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
-    const user = await userService.login(email, password);
+export const login = async (req, res) => {
+  const { email, password } = req.body;
+  const user = await userService.login(email, password);
+  const { normalizedUser, accessToken, refreshToken } =
+    await generateTokens(user);
 
-    const { normalizedUser, accessToken, refreshToken } =
-      await generateTokens(user);
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    sameSite: 'lax',
+    secure: false,
+  });
 
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: 'lax',
-      secure: false,
-    });
-
-    return res.json({ user: normalizedUser, accessToken });
-  } catch (e) {
-    if (!res.headersSent) {
-      next(e);
-    }
-  }
+  return res.json({ user: normalizedUser, accessToken });
 };
 
-export const refresh = async (req, res, next) => {
-  try {
-    const { refreshToken } = req.cookies;
+export const refresh = async (req, res) => {
+  const { refreshToken } = req.cookies;
 
-    if (!refreshToken) {
-      return res.status(401).json({ message: 'No refresh token' });
-    }
-
-    const tokenFromDb = await tokenService.getByToken(refreshToken);
-
-    if (!tokenFromDb) {
-      return res.status(401).json({ message: 'Invalid refresh token' });
-    }
-
-    const userData = jwtService.verifyRefresh(refreshToken);
-
-    if (!userData) {
-      return res.status(401).json({ message: 'Invalid refresh token' });
-    }
-
-    const user = await userService.findByEmail(userData.email);
-
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
-    }
-
-    const normalizedUser = userService.normalize(user);
-    const accessToken = jwtService.sign(normalizedUser);
-
-    return res.json({ user: normalizedUser, accessToken, refreshToken });
-  } catch (e) {
-    if (!res.headersSent) {
-      next(e);
-    }
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'No refresh token' });
   }
+
+  const tokenFromDb = await tokenService.getByToken(refreshToken);
+
+  if (!tokenFromDb) {
+    return res.status(401).json({ message: 'Invalid refresh token' });
+  }
+
+  const userData = jwtService.verifyRefresh(refreshToken);
+
+  if (!userData) {
+    return res.status(401).json({ message: 'Invalid refresh token' });
+  }
+
+  const user = await userService.findByEmail(userData.email);
+
+  if (!user) {
+    return res.status(401).json({ message: 'User not found' });
+  }
+
+  const normalizedUser = userService.normalize(user);
+  const accessToken = jwtService.sign(normalizedUser);
+
+  return res.json({ user: normalizedUser, accessToken, refreshToken });
 };
 
-export const logout = async (req, res, next) => {
-  try {
-    const { refreshToken } = req.cookies;
+export const logout = async (req, res) => {
+  const { refreshToken } = req.cookies;
 
-    if (!refreshToken) {
-      return res.status(401).json({ message: 'No refresh token' });
-    }
-
-    const userData = jwtService.verifyRefresh(refreshToken);
-
-    if (!userData) {
-      return res.status(401).json({ message: 'Invalid refresh token' });
-    }
-
-    await tokenService.remove(userData.id);
-    res.clearCookie('refreshToken');
-
-    return res.sendStatus(204);
-  } catch (e) {
-    if (!res.headersSent) {
-      next(e);
-    }
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'No refresh token' });
   }
+
+  const userData = jwtService.verifyRefresh(refreshToken);
+
+  if (!userData) {
+    return res.status(401).json({ message: 'Invalid refresh token' });
+  }
+
+  await tokenService.remove(userData.id);
+  res.clearCookie('refreshToken');
+
+  return res.sendStatus(204);
 };
 
-const requestReset = async (req, res, next) => {
-  try {
-    const { email } = req.body;
-    const error = validateEmail(email);
+export const requestReset = async (req, res) => {
+  const { email } = req.body;
+  const error = validateEmail(email);
 
-    if (error) {
-      throw ApiError.badRequest('Bad request', { email: error });
-    }
-
-    await userService.requestPasswordReset(email);
-
-    return res.json({
-      message: 'If that email exists, you’ll get a reset link soon.',
-    });
-  } catch (e) {
-    if (!res.headersSent) {
-      next(e);
-    }
+  if (error) {
+    throw ApiError.badRequest('Bad request', { email: error });
   }
+
+  await userService.requestPasswordReset(email);
+
+  return res.json({
+    message: 'If that email exists, you’ll get a reset link soon.',
+  });
 };
 
-const resetPassword = async (req, res, next) => {
-  try {
-    const { resetToken } = req.params;
-    const { password, confirmPassword } = req.body;
+export const resetPassword = async (req, res) => {
+  const { resetToken } = req.params;
+  const { password, confirmPassword } = req.body;
 
-    if (!password || !confirmPassword) {
-      return res
-        .status(400)
-        .json({ message: 'Both password and confirmation are required' });
-    }
-
-    await userService.resetPassword(resetToken, password, confirmPassword);
-
-    res.clearCookie('refreshToken');
-
-    return res.json({ message: 'Password has been reset successfully' });
-  } catch (e) {
-    if (!res.headersSent) {
-      next(e);
-    }
+  if (!password || !confirmPassword) {
+    return res
+      .status(400)
+      .json({ message: 'Both password and confirmation are required' });
   }
+
+  await userService.resetPassword(resetToken, password, confirmPassword);
+  res.clearCookie('refreshToken');
+
+  return res.json({ message: 'Password has been reset successfully' });
 };
 
-async function updateProfile(req, res, next) {
-  try {
-    const userId = req.user.id;
-    const data = req.body;
+export const updateProfile = async (req, res) => {
+  const userId = req.user.id;
+  const data = req.body;
+  const result = await userService.updateProfile(userId, data);
 
-    const result = await userService.updateProfile(userId, data);
+  console.log('user.toJSON()', result.user);
 
-    console.log('user.toJSON()', result.user);
-
-    res.json(result);
-  } catch (err) {
-    console.error('Update profile error:', err);
-    next(err);
-  }
-}
-
-export const authController = {
-  register,
-  activate,
-  login,
-  refresh,
-  logout,
-  requestReset,
-  resetPassword,
-  updateProfile,
+  return res.json(result);
 };
