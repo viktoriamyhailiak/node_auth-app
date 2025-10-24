@@ -6,18 +6,6 @@ const getAllActivated = async (req, res) => {
   res.send(users.map(userService.normalize));
 };
 
-const activate = async (req, res, next) => {
-  try {
-    const { token } = req.params;
-    const user = await userService.activate(token);
-
-    res.json({ message: 'User activated', user: userService.normalize(user) });
-  } catch (e) {
-    next(e);
-  }
-};
-
 export const userController = {
   getAllActivated,
-  activate,
 };

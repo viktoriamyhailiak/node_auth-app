@@ -13,7 +13,7 @@ authRouter.get(
 );
 authRouter.post('/login', catchError(authController.login));
 authRouter.get('/refresh', catchError(authController.refresh));
-authRouter.post('/logout', authController.logout);
+authRouter.post('/logout', catchError(authController.logout));
 authRouter.post('/request-reset', catchError(authController.requestReset));
 
 authRouter.post(

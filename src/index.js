@@ -27,6 +27,10 @@ app.get('/', (req, res) => {
   res.send('Hello');
 });
 
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
+
 app.use(errorMiddleware);
 
 app.listen(PORT, () => {

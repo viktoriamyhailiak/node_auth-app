@@ -1,6 +1,5 @@
 /* eslint-disable no-console */
 import { jwtService } from '../services/jwt.service.js';
-import jwt from 'jsonwebtoken';
 import { userService } from '../services/user.service.js';
 
 export async function authMiddleware(req, res, next) {
@@ -12,18 +11,10 @@ export async function authMiddleware(req, res, next) {
     }
 
     const token = authHeader.split(' ')[1];
-    let userData;
+    const userData = jwtService.verify(token);
 
-    try {
-      userData = jwtService.verify(token);
-    } catch (err) {
-      if (
-        err instanceof jwt.TokenExpiredError ||
-        err instanceof jwt.JsonWebTokenError
-      ) {
-        return res.status(401).json({ message: 'Token invalid or expired' });
-      }
-      throw err;
+    if (!userData) {
+      return res.status(401).json({ message: 'Token invalid or expired' });
     }
 
     console.log('authMiddleware: token payload', {

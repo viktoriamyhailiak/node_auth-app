@@ -1,12 +1,8 @@
 /* eslint-disable no-console */
-import { User } from '../models/user.module.js';
 import { userService } from '../services/user.service.js';
 import { jwtService } from '../services/jwt.service.js';
 import { ApiError } from '../exeptions/api.error.js';
-import bcrypt from 'bcrypt';
 import { tokenService } from '../services/token.service.js';
-import { v4 as uuidv4 } from 'uuid';
-import { emailService } from '../services/email.service.js';
 
 function validateEmail(value) {
   if (!value) {
@@ -63,22 +59,7 @@ export const register = async (req, res, next) => {
       throw ApiError.badRequest('Validation failed', errors);
     }
 
-    const candidate = await User.findOne({ where: { email } });
-
-    if (candidate) {
-      throw ApiError.badRequest(`User with email ${email} already exists`);
-    }
-
-    const hashPassword = await bcrypt.hash(password, 10);
-    const activationToken = uuidv4();
-    const user = await User.create({
-      name,
-      email,
-      password: hashPassword,
-      activationToken,
-    });
-
-    await emailService.sendActivationEmail(email, activationToken);
+    const user = await userService.register({ name, email, password });
 
     const { normalizedUser, accessToken, refreshToken } =
       await generateTokens(user);
@@ -107,15 +88,7 @@ export const register = async (req, res, next) => {
 export const activate = async (req, res, next) => {
   try {
     const { activationToken } = req.params;
-    const user = await User.findOne({ where: { activationToken } });
-
-    if (!user) {
-      return res.status(404).json({ message: 'Wrong activation link' });
-    }
-
-    user.activationToken = null;
-    await user.save();
-
+    const user = await userService.activate(activationToken);
     const { normalizedUser, accessToken, refreshToken } =
       await generateTokens(user);
 
@@ -126,7 +99,12 @@ export const activate = async (req, res, next) => {
       secure: false,
     });
 
-    return res.json({ accessToken, refreshToken, user: normalizedUser });
+    return res.json({
+      message: 'Account successfully activated!',
+      user: normalizedUser,
+      accessToken,
+      refreshToken,
+    });
   } catch (e) {
     if (!res.headersSent) {
       next(e);
@@ -137,17 +115,7 @@ export const activate = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const user = await userService.findByEmail(email);
-
-    if (!user) {
-      throw ApiError.badRequest('No such user');
-    }
-
-    const isValid = await bcrypt.compare(password, user.password);
-
-    if (!isValid) {
-      throw ApiError.badRequest('Wrong password');
-    }
+    const user = await userService.login(email, password);
 
     const { normalizedUser, accessToken, refreshToken } =
       await generateTokens(user);
@@ -229,30 +197,20 @@ export const logout = async (req, res, next) => {
   }
 };
 
-export const requestReset = async (req, res, next) => {
+const requestReset = async (req, res, next) => {
   try {
     const { email } = req.body;
-    const errors = { email: validateEmail(email) };
+    const error = validateEmail(email);
 
-    if (errors.email) {
-      throw ApiError.badRequest('Bad request', errors);
+    if (error) {
+      throw ApiError.badRequest('Bad request', { email: error });
     }
 
-    const user = await userService.findByEmail(email);
+    await userService.requestPasswordReset(email);
 
-    if (!user) {
-      return res.json({
-        message: 'If that email exists, you’ll get a reset link soon.',
-      });
-    }
-
-    const resetToken = uuidv4();
-
-    user.resetToken = resetToken;
-    await user.save();
-    await emailService.sendResetPasswordEmail(email, resetToken);
-
-    return res.json({ message: 'Password reset email sent' });
+    return res.json({
+      message: 'If that email exists, you’ll get a reset link soon.',
+    });
   } catch (e) {
     if (!res.headersSent) {
       next(e);
@@ -260,20 +218,19 @@ export const requestReset = async (req, res, next) => {
   }
 };
 
-export const resetPassword = async (req, res, next) => {
+const resetPassword = async (req, res, next) => {
   try {
     const { resetToken } = req.params;
-    const { password } = req.body;
-    const user = await User.findOne({ where: { resetToken } });
+    const { password, confirmPassword } = req.body;
 
-    if (!user) {
-      throw ApiError.badRequest('Invalid or expired reset token');
+    if (!password || !confirmPassword) {
+      return res
+        .status(400)
+        .json({ message: 'Both password and confirmation are required' });
     }
 
-    user.password = await bcrypt.hash(password, 10);
-    user.resetToken = null;
-    await user.save();
-    await tokenService.remove(user.id);
+    await userService.resetPassword(resetToken, password, confirmPassword);
+
     res.clearCookie('refreshToken');
 
     return res.json({ message: 'Password has been reset successfully' });
@@ -284,104 +241,16 @@ export const resetPassword = async (req, res, next) => {
   }
 };
 
-export async function updateProfile(req, res, next) {
+async function updateProfile(req, res, next) {
   try {
     const userId = req.user.id;
-    const {
-      name,
-      oldPassword,
-      newPassword,
-      confirmPassword,
-      password,
-      email,
-      confirmEmail,
-    } = req.body;
+    const data = req.body;
 
-    const user = await User.findByPk(userId);
+    const result = await userService.updateProfile(userId, data);
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    console.log('user.toJSON()', result.user);
 
-    if (name) {
-      user.name = name;
-    }
-
-    if (oldPassword && newPassword && confirmPassword) {
-      if (newPassword !== confirmPassword) {
-        return res.status(400).json({ message: 'Passwords do not match' });
-      }
-
-      const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
-
-      if (!isPasswordValid) {
-        return res.status(401).json({ message: 'Invalid current password' });
-      }
-
-      const hashed = await bcrypt.hash(newPassword, 10);
-
-      user.password = hashed;
-    }
-
-    let accessToken = null;
-    let sendEmails = false;
-    let oldEmail = null;
-
-    if (email && confirmEmail && password) {
-      if (email !== confirmEmail) {
-        return res.status(400).json({ message: 'Emails do not match' });
-      }
-
-      const isPasswordValidEmail = await bcrypt.compare(
-        password,
-        user.password,
-      );
-
-      if (!isPasswordValidEmail) {
-        return res.status(401).json({ message: 'Invalid password' });
-      }
-
-      oldEmail = user.email;
-      user.email = email;
-      sendEmails = true;
-    }
-
-    await user.save();
-
-    accessToken = jwtService.sign(
-      { id: user.id, email: user.email },
-      process.env.JWT_KEY,
-      { expiresIn: '15m' },
-    );
-
-    if (sendEmails) {
-      await emailService.send({
-        email: oldEmail,
-        subject: 'Your email was changed',
-        html: `
-          <h2>Email Change Notification</h2>
-          <p>Hello ${user.name || ''},</p>
-          <p>Your account email has been changed to: <b>${user.email}</b>.</p>
-          <p>If you did not request this change, contact support immediately.</p>
-        `,
-      });
-
-      await emailService.send({
-        email: user.email,
-        subject: 'Email change successful',
-        html: `
-          <h2>Welcome, ${user.name || ''}!</h2>
-          <p>Your email has been successfully updated to this address.</p>
-          <p>If you did not make this change, contact support immediately.</p>
-        `,
-      });
-    }
-
-    const plainUser = user.toJSON();
-
-    console.log('user.toJSON()', plainUser);
-
-    res.json({ user: plainUser, accessToken });
+    res.json(result);
   } catch (err) {
     console.error('Update profile error:', err);
     next(err);
